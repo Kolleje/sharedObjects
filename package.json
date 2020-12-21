@@ -1,0 +1,22 @@
+{
+  "name": "objectstuff",
+  "version": "1.0.0",
+  "description": "move stuff around with your friends",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "graf",
+  "license": "ISC",
+  "devDependencies": {
+    "@types/node": "^14.14.14",
+    "@typescript-eslint/eslint-plugin": "^4.10.0",
+    "@typescript-eslint/parser": "^4.10.0",
+    "eslint": "^7.16.0",
+    "typescript": "^4.1.3"
+  },
+  "dependencies": {
+    "serve-static": "^1.14.1",
+    "socket.io": "^3.0.4"
+  }
+}
