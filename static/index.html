@@ -1,0 +1,122 @@
+<script src="/lib/socket.io/socket.io.js"></script>
+
+<script>
+	console.log(window.location)
+	const query = parseQuery(window.location.search);
+	let msgId = 0;
+	_ws = null;
+
+	function parseQuery(queryString) {
+		const query = {};
+		queryString = queryString.substring(1);
+		const vars = queryString.split('&');
+		for (combined of vars) {
+			const pair = combined.split('=');
+			query[decodeURIComponent(pair[0])] = decodeURIComponent(pair[1]);
+		}
+		return query;
+	}
+	const socket = io({ path: '/ws' });
+	const objects = {};
+
+	class ws {
+		constructor(socket) {
+			this.requests = new Map();
+			this.socket = socket;
+
+			socket.on('response', res => {
+				const msgId = res.msgId;
+				const deferedPromiseObject = this.requests.get(msgId);
+				if (!deferedPromiseObject) return;
+				deferedPromiseObject.r(res.d);
+			});
+		}
+		async request(req) {
+			req.msgId = msgId++;
+
+			const p = new Promise((r, j) => {
+				this.requests.set(req.msgId, { r, j });
+			});
+
+			socket.emit('request', req);
+
+			return p;
+		}
+	}
+
+	socket.on('connect', () => {
+		doAllTheStuff(new ws(socket));
+		socket.emit('request', {
+			f: 'GET',
+			path: ['map'],
+		});
+	});
+
+	async function doAllTheStuff(ws) {
+		_ws = ws;
+		const maps = await ws.request({
+			f: 'GET',
+			path: ['map']
+		});
+
+		const mapsDiv = document.getElementById("mapsDiv");
+		for (const key in maps) {
+			const map = maps[key];
+
+			const div = document.createElement('div');
+			div.setAttribute('id', key);
+			const l = document.createElement('a');
+			l.setAttribute('name', 'name');
+			l.setAttribute('href', `/map.html?map=${key}`);
+			l.innerHTML = map.name;
+
+			const e = document.createElement('button');
+			e.setAttribute('name', 'edit');
+			e.innerHTML = 'Edit';
+			e.setAttribute('href', `/map.html?map=${key}`);
+			e.setAttribute('onClick', `window.location.href='/edit.html?map=${key}'`);
+
+			const r = document.createElement('button');
+			r.setAttribute('name', 'delete');
+			r.innerHTML = 'Delete';
+			r.setAttribute('onClick', `deleteMap('${key}')`);
+
+			div.appendChild(l);
+			div.appendChild(e);
+			div.appendChild(r);
+			mapsDiv.appendChild(div);
+		}
+
+		console.log(maps)
+	}
+
+	async function deleteMap(id){
+		await _ws.request({
+			f: 'DELETE',
+			path: ['map', id],
+		});
+		const element = document.getElementById(id);
+		element.parentNode.removeChild(element);
+	}
+
+</script>
+
+
+
+<html>
+
+<head>
+	<style>
+		body {
+			background-color: white;
+		}
+	</style>
+</head>
+
+<body>
+	<button onclick="window.location.href='/newMap.html'">New Map</button>
+	<div id=mapsDiv>
+	</div>
+</body>
+
+</html>

@@ -1,0 +1,99 @@
+<script src="/lib/socket.io/socket.io.js"></script>
+
+<script>
+	console.log(window.location)
+	const query = parseQuery(window.location.search);
+	let msgId = 0;
+	_ws = null;
+
+	function parseQuery(queryString) {
+		const query = {};
+		queryString = queryString.substring(1);
+		const vars = queryString.split('&');
+		for (combined of vars) {
+			const pair = combined.split('=');
+			query[decodeURIComponent(pair[0])] = decodeURIComponent(pair[1]);
+		}
+		return query;
+	}
+	const socket = io({ path: '/ws' });
+	const objects = {};
+
+	class ws {
+		constructor(socket) {
+			this.requests = new Map();
+			this.socket = socket;
+
+			socket.on('response', res => {
+				const msgId = res.msgId;
+				const deferedPromiseObject = this.requests.get(msgId);
+				if (!deferedPromiseObject) return;
+				deferedPromiseObject.r(res.d);
+			});
+		}
+		async request(req) {
+			req.msgId = msgId++;
+
+			const p = new Promise((r, j) => {
+				this.requests.set(req.msgId, { r, j });
+			});
+
+			socket.emit('request', req);
+
+			return p;
+		}
+	}
+
+	socket.on('connect', () => {
+		doAllTheStuff(new ws(socket));
+	});
+
+	async function doAllTheStuff(ws) {
+		_ws = ws;
+	}
+
+	async function submit(){
+		const name = document.getElementById('name').value;
+		const x = parseInt(document.getElementById('size').value) || 100;
+		const y = parseInt(document.getElementById('size2').value) || 100;
+		const size = {x,y};
+		const background = document.getElementById('background').value;
+		const description = document.getElementById('description').value;
+		const map = {name, size, background, description};
+		await _ws.request({
+			f: 'POST',
+			path: ['map'],
+			d: map,
+		});
+		window.location.href='/index.html';
+	}
+
+</script>
+
+
+
+<html>
+
+<head>
+	<style>
+		body {
+			background-color: white;
+		}
+	</style>
+</head>
+
+<body>
+	<label for="name">name:</label>
+	<input type="text" id="name" name="name"><br><br>
+	<label for="background">background:</label>
+	<input type="text" id="background" name="background"><br><br>
+	<label for="size">size:</label>
+	<input type="number" id="size" name="size">
+	<input type="number" id="size2" name="size"><br><br>
+	<label for="description">description:</label>
+	<textarea id="description" name="description" rows="8" cols="150"></textarea><br><br>
+	<button onclick='submit();'>Submit</button>
+	<button onclick="window.location.href='/index.html'">Cancel</button>
+</body>
+
+</html>

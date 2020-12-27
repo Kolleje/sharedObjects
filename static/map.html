@@ -1,0 +1,243 @@
+<script src="/lib/socket.io/socket.io.js"></script>
+
+<script>
+	class Ws {
+		constructor(socket) {
+			this.requests = new Map();
+			this.socket = socket;
+
+			socket.on('response', res => {
+				const msgId = res.msgId;
+				const deferedPromiseObject = this.requests.get(msgId);
+				if (!deferedPromiseObject) return;
+				deferedPromiseObject.r(res.d);
+			});
+		}
+		async request(req) {
+			req.msgId = msgId++;
+
+			const p = new Promise((r, j) => {
+				this.requests.set(req.msgId, { r, j });
+			});
+
+			socket.emit('request', req);
+
+			return p;
+		}
+	}
+
+	const query = parseQuery(window.location.search);
+	let counter = 0;
+	let msgId = 0;
+	let reDraw = false;
+	selectedForDrag = null;
+
+	function parseQuery(queryString) {
+		const query = {};
+		queryString = queryString.substring(1);
+		const vars = queryString.split('&');
+		for (combined of vars) {
+			const pair = combined.split('=');
+			query[decodeURIComponent(pair[0])] = decodeURIComponent(pair[1]);
+		}
+		return query;
+	}
+	const socket = io({ path: '/ws' });
+	const objects = {};
+
+	socket.on('update', update);
+
+
+	socket.on('connect', init);
+
+	async function init() {
+		const ws = new Ws(socket);
+		const mapData = await ws.request({ path: ['map', query.map], f: 'GET' });
+
+		initCanvas(mapData);
+
+		setInterval(drawOnCanvas, 1000 / 30);
+		registerMouseEvents();
+
+		socket.emit('request', {
+			msgId: msgId++,
+			f: 'subscribe',
+			path: ['map', query.map],
+		});
+	}
+
+	function initCanvas(mapData) {
+		canvas = document.getElementById('myCanvas');
+
+		canvas.width = mapData.size.x;
+		canvas.height = mapData.size.y;
+
+		context = canvas.getContext('2d');
+
+		backGroundCanvas = document.getElementById('background');
+
+		backGroundCanvas.width = mapData.size.x;
+		backGroundCanvas.height = mapData.size.y;
+
+		backGroundContext = backGroundCanvas.getContext('2d');
+
+		const img = new Image(mapData.size.x, mapData.size.y);
+		img.src = mapData.background;
+		img.onload = () => {
+			backGroundContext.drawImage(img, 0, 0, mapData.size.x, mapData.size.y);
+		};
+
+	}
+
+	function update(update) {
+		// console.log(update)
+		if (update.f === 'create') {
+			const img = new Image(update.d.size.x, update.d.size.y);
+			img.src = update.d.src;
+			img.onload = () => {
+				reDraw = true;
+			};
+			let obj = {
+				img,
+				data: update.d
+			}
+			objects[update.d.id] = obj;
+		}
+		if (update.f === 'update') {
+			objects[update.d.id].data = update.d;
+		}
+		if (update.f === 'mvObj') {
+			// console.log('mvobj', update)
+			objects[update.id].data.pos = update.d;
+		}
+		if (update.f === 'delete') delete objetcts[update.d];
+		reDraw = true;
+	}
+
+	function registerMouseEvents() {
+
+		canvas.onmousedown = function (e) {
+			const mouseX = e.pageX - this.offsetLeft;
+			const mouseY = e.pageY - this.offsetTop;
+
+			selectObjectAt(mouseX, mouseY)
+			onMoveEvent(e);
+		};
+
+		canvas.onmouseup = function (e) {
+			onMoveEvent(e);
+			moveObject();
+			if (selectedForDrag && selectedForDrag.updateInterval) clearInterval(selectedForDrag.updateInterval);
+			selectedForDrag = null;
+		};
+
+		canvas.onmouseout = function (e) {
+			onMoveEvent(e);
+			moveObject();
+			if (selectedForDrag && selectedForDrag.updateInterval) clearInterval(selectedForDrag.updateInterval);
+			selectedForDrag = null;
+		};
+
+		canvas.onmousemove = function (e) {
+			onMoveEvent(e);
+			moveObject(true);
+		};
+	}
+
+	function onMoveEvent(e) {
+		if (selectedForDrag) {
+			selectedForDrag.lastEvent = e;
+			selectedForDrag.posSent = false;
+		}
+	}
+
+	function moveObject(checkTimer) {
+		if (selectedForDrag) {
+			const now = new Date().getTime();
+			if (checkTimer && now - selectedForDrag.lastUpdate < 100) return;
+			const pos = {
+				x: selectedForDrag.lastEvent.pageX - canvas.offsetLeft - selectedForDrag.offset.x,
+				y: selectedForDrag.lastEvent.pageY - canvas.offsetTop - selectedForDrag.offset.y,
+			};
+			selectedForDrag.posSent = false;
+			selectedForDrag.lastUpdate = now;
+			selectedForDrag.posSent = true;
+			console.log(counter++)
+			// objects[selectedForDrag].data.pos.x = e.pageX - this.offsetLeft;
+			// objects[selectedForDrag].data.pos.y = e.pageY - this.offsetTop;
+			socket.emit('request', {
+				f: 'mv',
+				path: selectedForDrag.id,
+				d: pos
+			});
+		}
+	}
+
+	function selectObjectAt(x, y) {
+		for (const id in objects) {
+			const obj = objects[id];
+			if (x >= obj.data.pos.x
+				&& x <= obj.data.pos.x + obj.data.size.x
+				&& y >= obj.data.pos.y
+				&& y <= obj.data.pos.y + obj.data.size.y) {
+				selectedForDrag = {
+					id,
+					offset: { x: x - obj.data.pos.x, y: y - obj.data.pos.y },
+					pos: { x, y },
+					lastUpdate: 0,
+					updateInterval: setInterval(sendNewPos, 100),
+					posSent: false,
+					lastEvent: null,
+				};
+			}
+		}
+	}
+
+	function sendNewPos() {
+		if (!selectedForDrag || selectedForDrag.posSent) return;
+		moveObject(true);
+	}
+
+	function drawOnCanvas(obj) {
+		if (!reDraw) return;
+		// console.log('redraw', objects)
+		resetCanvas();
+		for (const id in objects) {
+			const obj = objects[id];
+			if (obj.img && obj.img.complete) context.drawImage(obj.img, obj.data.pos.x, obj.data.pos.y, obj.data.size.x, obj.data.size.y);
+		}
+		reDraw = false;
+	}
+	function resetCanvas() {
+		context.clearRect(0, 0, canvas.width, canvas.height);
+
+		// context.fillRect(0, 0, canvas.width, canvas.height);
+	}
+</script>
+
+
+
+<html>
+
+<head>
+	<style>
+		body {
+			background-color: white;
+		}
+
+		canvas.absolute {
+			position: absolute;
+			top: 10px;
+			left: 10px;
+			border: 1px solid black;
+		}
+	</style>
+	</style>
+</head>
+
+<body>
+	<canvas id="background" width="800" height="600" class="absolute"></canvas>
+	<canvas id="myCanvas" width="800" height="600" class="absolute"></canvas>
+</body>
+
+</html>

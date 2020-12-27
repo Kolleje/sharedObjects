@@ -1,0 +1,44 @@
+<script src="/lib/socket.io/socket.io.js"></script>
+
+<canvas id="myCanvas" width="800" height="600">
+</canvas>
+
+<script>
+	let id = 0;
+	const socket = io({ path: '/ws' });
+	socket.on('update', update => {
+		if (update.f === 'create') drawOnCanvas(update.d)
+		console.log('update', update);
+	});
+	socket.on('connect', async () => {
+		socket.emit('request', {
+			id: id++,
+			f: 'subscribe',
+			path: ['map','test'],
+		});
+		socket.emit('request', {
+			id: id++,
+			f: 'POST',
+			path: ['item'],
+			d: { src: 'graf.jpg', map: 'test', size: {x:30,y:30}}
+		});
+	});
+
+	socket.on('response', res => {
+		console.log('reponse', res);
+	});
+
+	function drawOnCanvas(obj){
+		const c = document.getElementById("myCanvas");
+		const ctx = c.getContext("2d");
+		const img = new Image(30,40);
+		img.onload = drawImageNow;
+		img.src = obj.src;
+		function drawImageNow(){
+			ctx.drawImage(this, 0,0, this.width, this.height);
+		}
+	}
+</script>
+
+
+tesssssssssst
