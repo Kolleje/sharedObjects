@@ -4,20 +4,34 @@ let subId = 0;
 class Obj{
 	id: string;
 	pos: {x: number, y:number};
+	size: {x: number, y:number};
 	type: string;
-	constructor(options){
+	src: string;
+	constructor(options?){
 		this.id = getKey();
 		this.pos = {x:0, y:0};
+		this.size = options?.size || {x:30, y:30};
+		this.src = options?.src;
 	}
 }
 
 class Project{
 	id: string;
 	name: string;
+	description: string;
+	size: {x:number, y:number};
+	background: string;
 	children: Map<string, Obj>;
-	constructor(name: string){
+	constructor(options){
 		this.id = getKey();
-		this.name = name;
+		this.name = options.name;
+		this.size = {x:0,y:0};
+		if (options.size){
+			this.size.x = options.size.x;
+			this.size.y = options.size.y;
+		}
+		this.background = options.background;
+		this.description = options.description;
 		this.children = new Map();
 	}
 }
@@ -26,10 +40,8 @@ const keyObjMap = new Map();
 const keyProjKeyMap = new Map();
 
 const projects = {
-	test: new Project('Test Project'),
+	test: new Project({name: 'Test Project'}),
 };
-
-
 
 function getKey(){
 	return ''+(++key);
@@ -37,6 +49,37 @@ function getKey(){
 
 function getSubId(){
 	return ''+(++subId);
+}
+
+function listMaps(){
+	return projects;
+}
+
+function getMap(id){
+	return projects[id];
+}
+
+function updateMap(id, data){
+	const map = getMap(id);
+	if (!map) throw new Error('not found');
+	map.description = data.description;
+	map.name = data.name;
+	map.size = data.size;
+	map.background = data.background;
+}
+
+function createMap(options){
+	const map = new Project(options);
+	projects[map.id] = map;
+}
+
+function deleteMap(id){
+	const map = projects[id];
+	if(!map) return;
+	map.children.forEach(element => {
+		deleteObj(element.id);
+	});
+	delete projects[id];
 }
 
 const projectSubs = {};
@@ -48,7 +91,7 @@ function subscribeProject(proj, cb, requestee?){
 
 	if (projects[proj]){
 		projects[proj].children.forEach(element => {
-			cb('create', element);
+			cb('create', element.id, element);
 		});
 	}
 	return id;
@@ -64,8 +107,9 @@ function unsubscribe(id){
 }
 
 
-function createObj(proj, options?: any){
-	if (!projects[proj]) throw new Error('invalid ProjectId');
+function createObj(options: any){
+	const proj = options.map;
+	if (!projects[proj]) throw new Error('invalid mapId');
 	const project = projects[proj];
 	const added = new Obj(options);
 	project.children.set(added.id, added);
@@ -87,14 +131,14 @@ function deleteObj(id){
 	callCb('delete', id, id);
 }
 
-function callCb(type, id, data?){
-	const projId = keyProjKeyMap.get(id);
+function callCb(type, objId: string, data?){
+	const projId = keyProjKeyMap.get(objId);
 	const list = projectSubs[projId];
-	console.log('callcb', type, id, data, projId, list, projectSubs)
+	// console.log('callcb', type, id, data, projId, list, projectSubs)
 	if (!list) return;
 	for (const id in list){
 		try{
-			list[id](type, data);
+			list[id](type, objId, data);
 		}catch(e){}
 	}
 }
@@ -110,8 +154,13 @@ function mvObj(id, pos){
 
 export {
 	subscribeProject,
+	createMap,
+	listMaps,
+	deleteMap,
 	createObj,	
 	deleteObj,
 	mvObj,
 	unsubscribe,
+	getMap,
+	updateMap,
 };
