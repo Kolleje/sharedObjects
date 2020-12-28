@@ -1,3 +1,6 @@
+import * as fsP from 'fs/promises';
+import * as fs from 'fs';
+
 let key = 0;
 let subId = 0;
 
@@ -7,9 +10,9 @@ class Obj{
 	size: {x: number, y:number};
 	type: string;
 	src: string;
-	constructor(options?){
-		this.id = getKey();
-		this.pos = {x:0, y:0};
+	constructor(options?, key?){
+		this.id = key != null ? key : getKey();
+		this.pos = options?.pos || {x:0, y:0};
 		this.size = options?.size || {x:30, y:30};
 		this.src = options?.src;
 	}
@@ -22,8 +25,8 @@ class Project{
 	size: {x:number, y:number};
 	background: string;
 	children: Map<string, Obj>;
-	constructor(options){
-		this.id = getKey();
+	constructor(options, key?){
+		this.id = key != null ? key : getKey();
 		this.name = options.name;
 		this.size = {x:0,y:0};
 		if (options.size){
@@ -36,12 +39,12 @@ class Project{
 	}
 }
 
-const keyObjMap = new Map();
-const keyProjKeyMap = new Map();
+let keyObjMap = new Map();
+let keyProjKeyMap = new Map();
 
-const projects = {
-	test: new Project({name: 'Test Project'}),
-};
+let projects:any = {};
+
+projects.test = new Project({name: 'Test Project'});
 
 function getKey(){
 	return ''+(++key);
@@ -68,8 +71,8 @@ function updateMap(id, data){
 	map.background = data.background;
 }
 
-function createMap(options){
-	const map = new Project(options);
+function createMap(options, key?){
+	const map = new Project(options, key);
 	projects[map.id] = map;
 }
 
@@ -107,11 +110,11 @@ function unsubscribe(id){
 }
 
 
-function createObj(options: any){
+function createObj(options: any, key?){
 	const proj = options.map;
 	if (!projects[proj]) throw new Error('invalid mapId');
 	const project = projects[proj];
-	const added = new Obj(options);
+	const added = new Obj(options, key);
 	project.children.set(added.id, added);
 	keyObjMap.set(added.id, added);
 	keyProjKeyMap.set(added.id, proj);
@@ -152,6 +155,66 @@ function mvObj(id, pos){
 	callCb('mvObj', obj.id, obj.pos);
 }
 
+const tmpName = 'db_tmp.json';
+const dbPath = './db';
+const nameRE = /db_\d{13}\.json/;
+const limit = 10;
+
+async function save(){
+	console.log('saving');
+	const db = JSON.stringify({
+		key,
+		keyObjMap,
+		projects,
+		keyProjKeyMap,
+	},replacer,2);
+	await fsP.mkdir(dbPath, { recursive: true });
+	const name = 'db_' + new Date().getTime() + '.json';
+	await fsP.writeFile(dbPath + '/' + tmpName, db, 'utf8');
+	await fsP.rename(dbPath + '/' + tmpName, dbPath + '/' + name);
+
+	const dbDir = (await fsP.readdir(dbPath)).filter(name => nameRE.test(name));
+	while (dbDir.length > limit){
+		const toDelete = dbDir.shift();
+		await fsP.unlink(dbPath + '/' + toDelete);
+	}
+
+	setTimeout(save, 10000);
+}
+
+setTimeout(save, 10000);
+
+function load(){
+	console.log(`loading db from ${dbPath}`);
+	const dbDir = fs.readdirSync(dbPath).filter(name => nameRE.test(name));
+	
+	if (!dbDir.length) {
+		console.log('no file found');
+		return;
+	};
+
+	const newest = dbDir[dbDir.length-1];
+
+	const obj = JSON.parse(fs.readFileSync(dbPath + '/' + newest).toString('utf8'), reviver);
+	
+	keyObjMap = new Map();
+	projects = {};
+
+	key = obj.key;
+	keyProjKeyMap = obj.keyProjKeyMap;
+
+	for (const p in obj.projects){
+		createMap(obj.projects[p], p);
+		// projects[p] = new Project(obj.projects[p]);
+	}
+	obj.keyObjMap.forEach(element => {
+		element.map = keyProjKeyMap.get(element.id);
+		createObj(element, element.id);
+	});
+}
+
+load();
+
 export {
 	subscribeProject,
 	createMap,
@@ -164,3 +227,26 @@ export {
 	getMap,
 	updateMap,
 };
+
+//stringify map
+
+function replacer(key, value) {
+	const originalObject = this[key];
+	if(originalObject instanceof Map) {
+	  return {
+		dataType: 'Map',
+		value: Array.from(originalObject.entries()), // or with spread: value: [...originalObject]
+	  };
+	} else {
+	  return value;
+	}
+  }
+
+  function reviver(key, value) {
+	if(typeof value === 'object' && value !== null) {
+	  if (value.dataType === 'Map') {
+		return new Map(value.value);
+	  }
+	}
+	return value;
+  }
